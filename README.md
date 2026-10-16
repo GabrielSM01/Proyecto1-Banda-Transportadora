@@ -16,7 +16,7 @@ Firmware para la IdeaBoard (ESP32) que controla un motorreductor DC con PWM por 
 
 ## Estado del proyecto
 - [x] Fase 1: entorno y control de versiones
-- [ ] Fase 2: capa de abstracción de hardware (PWM)
+- [x] Fase 2: capa de abstracción de hardware (PWM)
 - [ ] Fase 3: ISR y depuración por ciclos
 - [ ] Fase 4: FSM orientada a eventos
-- [ ] Marco teórico (docs/marco_teorico.md)
+- [ ] Marco teórico (docs/marco_teorico.md)it
