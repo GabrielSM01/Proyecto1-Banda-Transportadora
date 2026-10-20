@@ -18,5 +18,23 @@ Firmware para la IdeaBoard (ESP32) que controla un motorreductor DC con PWM por 
 - [x] Fase 1: entorno y control de versiones
 - [x] Fase 2: capa de abstracción de hardware (PWM)
 - [x] Fase 3: ISR y depuración por ciclos
-- [ ] Fase 4: FSM orientada a eventos
-- [ ] Marco teórico (docs/marco_teorico.md)it
+- [x] Fase 4: FSM orientada a eventos
+- [ ] Marco teórico (docs/marco_teorico.md)
+
+## Máquina de estados (FSM)
+
+```mermaid
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> RUNNING: TIMEOUT (3 s en reposo)
+    RUNNING --> FAULT: BTN_PRESS (paro de emergencia)
+    FAULT --> IDLE: BTN_PRESS (rearme)
+```
+
+| Estado \ Evento | NONE | BTN_PRESS | TIMEOUT |
+|---|---|---|---|
+| IDLE | sin cambio | sin cambio | motor avanza, pasa a RUNNING |
+| RUNNING | sin cambio | freno dinámico, pasa a FAULT | sin cambio |
+| FAULT | sin cambio | motor en inercia, pasa a IDLE | sin cambio |
+
+El despacho es una matriz `constexpr` de punteros a funciones indexada por estado y evento: `FSM[estado][evento]()`. Es una consulta directa de tiempo constante O(1), sin `if` ni `switch` anidados.
