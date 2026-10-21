@@ -24,11 +24,17 @@ Firmware para la IdeaBoard (ESP32) que controla un motorreductor DC con PWM por 
 ## Máquina de estados (FSM)
 
 ```mermaid
-stateDiagram-v2
-    [*] --> IDLE
-    IDLE --> RUNNING: TIMEOUT (3 s en reposo)
-    RUNNING --> FAULT: BTN_PRESS (paro de emergencia)
-    FAULT --> IDLE: BTN_PRESS (rearme)
+flowchart LR
+    INI(( )) --> IDLE((IDLE))
+    IDLE -->|"TIMEOUT 3 s / motor adelante"| RUNNING((RUNNING))
+    RUNNING -->|"BTN_PRESS / freno dinámico"| FAULT((FAULT))
+    FAULT -->|"BTN_PRESS / coast"| IDLE
+
+    IDLE -->|"NONE, BTN_PRESS"| IDLE
+    RUNNING -->|"NONE, TIMEOUT"| RUNNING
+    FAULT -->|"NONE, TIMEOUT"| FAULT
+
+    style INI fill:#000,stroke:#000
 ```
 
 | Estado \ Evento | NONE | BTN_PRESS | TIMEOUT |
