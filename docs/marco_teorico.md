@@ -98,10 +98,56 @@ ciclos, justo los transcurridos ($10^{6}$ hasta el desborde más $3 \times 10^{6
 
 Limitación conocida: la deducción exige que entre dos disparos válidos pasen menos de 26,84 s. Si el tiempo real entre dos pulsaciones cae en los 25 ms posteriores a un múltiplo exacto de ese periodo, la resta daría un valor menor al umbral y se descartaría una pulsación legítima. Es una ventana de unos 25 ms cada 26,84 s, y la siguiente pulsación se acepta con normalidad.
 
+## Concurrencia en FreeRTOS
+
+### Contexto de tarea frente a contexto de excepción
+
+Una tarea de FreeRTOS es una entidad que el planificador conoce y administra: tiene prioridad, un estado (Ejecutando, Lista, Bloqueada o Suspendida) y un bloque de control propio. El planificador puede interrumpirla, ponerla a dormir y reanudarla más tarde. Cuando una tarea llama a `vTaskDelay`, le pide al kernel que la saque de la CPU durante un tiempo y ejecute otra.
+
+Una ISR se ejecuta en contexto de excepción: el hardware interrumpe lo que esté corriendo (una tarea u otra interrupción de menor prioridad) y ejecuta el manejador de inmediato. La ISR no es una tarea, así que no tiene estado ni prioridad de tarea y el planificador no la gestiona. No puede dormir ni esperar, porque no hay nada que reanudar: lo único que puede hacer es terminar y devolver el control a lo que interrumpió.
+
+Llamar a `vTaskDelay` dentro de una ISR es fatal por tres razones. Primero, la función bloquea a la tarea que la llama, pero en una ISR esa tarea sería la que fue interrumpida, que no tiene nada que ver con la ISR. Segundo, pide un cambio de contexto en un momento en que el kernel no lo espera: por eso FreeRTOS ofrece variantes `...FromISR`, que en lugar de cambiar de contexto dejan una petición de cambio para cuando la interrupción termina. Tercero, la función modifica las listas internas del planificador, que no están protegidas para ese contexto. En el ESP32 esto se traduce en una aserción del kernel o en la corrupción de esas estructuras, y termina en un panic con reinicio. Por eso en este proyecto la ISR solo levanta una bandera y el trabajo lo hace `loop()`.
+
+### Inversión de prioridad y herencia de prioridad
+
+La inversión de prioridad ocurre cuando una tarea de alta prioridad (A) queda bloqueada esperando un recurso que tiene una tarea de baja prioridad (B), y una tarea de prioridad media (M), que no necesita ese recurso, desplaza a B de la CPU. B no puede avanzar para liberar el recurso, así que A espera mientras M siga ejecutándose. Como M puede correr un tiempo arbitrario, la espera de A no tiene cota: en la práctica M se comporta como si tuviera más prioridad que A. Un caso real conocido es el de la sonda Mars Pathfinder (1997), donde este fenómeno provocó reinicios del sistema hasta que se activó la herencia de prioridad.
+
+La herencia de prioridad lo evita: cuando A se bloquea en un mutex que tiene B, el kernel eleva temporalmente la prioridad de B a la de A. Con eso M ya no puede desplazarla, B termina su sección crítica, libera el mutex y recupera su prioridad original, y A continúa. La espera de A queda acotada a la duración de la sección crítica de B. Los mutexes de FreeRTOS (`xSemaphoreCreateMutex`) implementan esta herencia; los semáforos binarios no. En este proyecto el problema no aparece porque no hay varias tareas compitiendo por un recurso: `loop()` y la ISR comparten datos mediante un spinlock con una sección crítica muy corta.
+
+### Condiciones de deadlock y el caso de loop() con una ISR
+
+Las cuatro condiciones de Coffman, que deben cumplirse a la vez para que exista un deadlock, son:
+
+1. **Exclusión mutua:** el recurso solo puede estar en manos de un proceso a la vez.
+2. **Retención y espera:** un proceso retiene un recurso mientras espera otro.
+3. **No expropiación:** el recurso no puede quitársele al proceso que lo tiene; solo lo libera él.
+4. **Espera circular:** existe una cadena cerrada de procesos en la que cada uno espera un recurso que tiene el siguiente.
+
+Secuencia que causaría un deadlock si `loop()` retiene un mutex y una ISR intenta tomar ese mismo mutex (en FreeRTOS tomar un mutex desde una ISR ni siquiera está permitido; el escenario describe lo que ocurriría si se intentara):
+
+1. `loop()` toma el mutex y entra a su sección crítica.
+2. Llega la interrupción de IO33 en ese momento. La CPU suspende a `loop()` y ejecuta la ISR.
+3. La ISR intenta tomar el mutex, que está ocupado. Como no puede dormir ni ceder la CPU, queda esperando.
+4. El dueño del mutex es `loop()`, pero solo puede continuar y liberarlo cuando la ISR termine. Y la ISR no termina hasta que el mutex se libere.
+
+Ninguno puede avanzar. Se cumplen las cuatro condiciones: el mutex es exclusivo (1), `loop()` lo retiene mientras espera que le devuelvan la CPU (2), no se le puede quitar el mutex a `loop()` ni expulsar a la ISR (3), y la espera es circular (4). El sistema queda colgado hasta que un watchdog lo reinicia.
+
+El proyecto evita este escenario porque usa un spinlock con enmascaramiento de interrupciones. Mientras `loop()` está dentro de la sección crítica, la interrupción no puede ejecutarse en ese núcleo, así que la ISR nunca llega a esperar a una tarea que no puede avanzar. Y si la ISR corriera en el otro núcleo, solo giraría unos ciclos hasta que se libere el cerrojo.
+
+## Determinismo algorítmico
+
+### Matriz de transiciones y complejidad O(1)
+
+El despacho de la FSM es `FSM[estado][evento]()`. Para ejecutarlo, la CPU calcula una posición en la tabla (estado por el número de eventos, más el evento), lee de ahí el puntero a la función y la llama. Son unas pocas instrucciones que no dependen de cuántos estados o eventos tenga la máquina: agregar filas o columnas agranda la tabla, pero no alarga el despacho. Por eso el tiempo de evaluación es constante, $O(1)$. La memoria sí crece con el producto de estados por eventos, $O(S \cdot E)$; aquí son 9 punteros (36 bytes), que al ser `constexpr` se resuelven en compilación y viven en memoria de solo lectura.
+
+Frente a `switch-case` o `if-else` anidados, la tabla tiene dos ventajas. La primera es la predicción de bifurcaciones: cada condicional que depende de datos es una bifurcación que el procesador debe predecir, y una predicción errónea obliga a vaciar el pipeline y repetir trabajo. Una cadena anidada acumula varias de esas bifurcaciones, y el camino recorrido depende del estado y del evento, por lo que el tiempo de cada despacho varía. En la tabla hay una sola bifurcación indirecta (la llamada por puntero) y el mismo número de instrucciones en cada despacho, lo que da un tiempo uniforme y predecible. El pipeline del Xtensa del ESP32 es relativamente corto, así que el castigo de una predicción errónea es menor que en procesadores grandes, pero el determinismo se mantiene. Un `switch` denso puede compilarse como tabla de saltos y también ser $O(1)$, pero eso depende de que el optimizador lo decida, y en una cascada anidada no está garantizado. La segunda ventaja es de mantenimiento: la tabla muestra todas las combinaciones estado-evento en un solo lugar y no se puede olvidar una transición, porque cada celda tiene su handler.
+
 ## Referencias
 - Espressif, ESP32 Technical Reference Manual, capítulo "LED PWM Controller (LEDC)".
 - Espressif, ESP32 Series Datasheet, secciones de GPIO e IO MUX.
 - Espressif, ESP-IDF Programming Guide: "Memory Types", "Interrupt Allocation" y "FreeRTOS (IDF)", sección de secciones críticas.
 - Cadence Tensilica, Xtensa Instruction Set Architecture Reference Manual: registro CCOUNT e instrucciones de lectura de registros especiales.
 - ISO/IEC 9899, sección 6.2.5 (aritmética de enteros sin signo).
-
+- Barry, R., *Mastering the FreeRTOS Real Time Kernel*, capítulos de gestión de interrupciones y de exclusión mutua.
+- Espressif, ESP-IDF Programming Guide, secciones de FreeRTOS (IDF) y de interrupciones.
+- Coffman, E. G., Elphick, M. J. y Shoshani, A., "System Deadlocks", ACM Computing Surveys, 3(2), 1971.
