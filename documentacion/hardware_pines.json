@@ -1,0 +1,40 @@
+{
+    "proyecto": "banda transportadora",
+    "placa": "IdeaBoard de CRCibernetica (ESP32-WROOM-32E)",
+    "framework": "arduino",
+    "frecuencia_cpu_mhz": 160,
+    "alimentacion": {
+        "fuente": "5 V / 3 A, conector de barril en la bornera Vin",
+        "jumper_select": "Vin",
+        "usb": "USB-C para programación y monitor serie a 115200 baudios"
+    },
+    "perifericos": [
+        {
+            "componente": "motor DC DG01D, entrada A del puente H L9110S",
+            "pin": 12,
+            "tipo": "salida PWM (LEDC canal 0)"
+        },
+        {
+            "componente": "motor DC DG01D, entrada B del puente H L9110S",
+            "pin": 14,
+            "tipo": "salida PWM (LEDC canal 1)"
+        },
+        {
+            "componente": "microinterruptor de paro de emergencia",
+            "pin": 33,
+            "tipo": "entrada digital con pull-up interno, interrupción por flanco de bajada"
+        }
+    ],
+    "pwm": {
+        "temporizador": "LEDC_TIMER_0",
+        "modo": "alta velocidad",
+        "resolucion_bits": 10,
+        "frecuencia_hz": 1000,
+        "ciclo_trabajo_maximo": 1024
+    },
+    "antirrebote": {
+        "metodo": "registro CCOUNT dentro de la ISR",
+        "ciclos": 4000000,
+        "tiempo_ms": 25
+    }
+}

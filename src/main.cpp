@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "hal_motor.h"
 #include "boton_isr.h"
-#include "fsm.h"
+#include "fsm_control.h"
 
 void setup()
 {
