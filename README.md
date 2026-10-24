@@ -67,8 +67,8 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 - `include/fsm_control.h`: máquina de estados con matriz `constexpr` de handlers.
 - `src/main.cpp`: inicialización y bucle sin bloqueos.
 - `documentacion/marco_teorico.md`: respuestas del marco teórico.
-- `documentacion/arquitectura.md`: (diagrama, matriz de transiciones y flujo de datos).
-- `documentacion/hardware_pines.json`: (pines y parámetros de hardware).
+- `documentacion/arquitectura.md`: diagrama, matriz de transiciones y flujo de datos.
+- `documentacion/hardware_pines.json`: pines y parámetros de hardware.
 
 
 ## Decisiones de diseño
@@ -85,13 +85,10 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 |---|---|
 | Arranque a los 3 s, motor gira, sin reinicios | Correcto |
 | Paro de emergencia: frena y pasa a FAULT | Correcto |
-| Rearme: vuelve a IDLE y arranca de nuevo a los 3 s | Correcto |
+| Rearme: vuelve a IDLE y arranca de nuevo a los 3 s | Parcial: ocurre al soltar el botón, no con una segunda pulsación (ver "Limitaciones conocidas") | Correcto |
 | Motor atascado con la mano: la placa no se reinicia | Correcto |
 | Ráfagas de pulsaciones: sin Guru Meditation | Correcto |
-| Sentido de giro del avance | Antihorario, visto desde _[completar el lado del eje]_ |
-| Frecuencia de la CPU en ejecución | _[completar]_ MHz |
-| Flancos por pulsación en el microinterruptor | _[completar rango]_ |
-| Intervalo más largo dentro de una pulsación | _[completar]_ µs (umbral del filtro: 25.000 µs) |
+| Sentido de giro del avance | Antihorario |
 
 ## Limitaciones conocidas
 
