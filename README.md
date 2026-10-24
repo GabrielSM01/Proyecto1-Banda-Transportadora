@@ -93,4 +93,9 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 | Flancos por pulsación en el microinterruptor | _[completar rango]_ |
 | Intervalo más largo dentro de una pulsación | _[completar]_ µs (umbral del filtro: 25.000 µs) |
 
+## Limitaciones conocidas
+
+- En las pruebas, tras un paro de emergencia el rearme ocurrió al soltar el botón, y no con una segunda pulsación. Causas probables: rebote del microinterruptor al soltar (el filtro de 25 ms mide desde el último disparo válido) o contacto cableado normalmente cerrado. No se confirmó por falta de mediciones con la placa.
+- Mejora propuesta: exigir que el pin permanezca en alto un tiempo mínimo antes de aceptar un nuevo disparo.
+
 Documentación teórica: [documentacion/marco_teorico.md](documentacion/marco_teorico.md).
