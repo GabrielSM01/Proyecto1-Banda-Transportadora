@@ -47,7 +47,7 @@ Cada celda de la matriz `FSM[estado][evento]` guarda el puntero al handler que s
 | Capa | Archivos | Responsabilidad |
 |---|---|---|
 | Aplicación | `src/main.cpp` | Inicialización y bucle sin bloqueos |
-| Entrada | `src/boton_isr.h`, `src/boton_isr.cpp` | ISR de IO33 en IRAM, depuración por CCOUNT, spinlock, bandera y contador |
+| Entrada | `include/boton_isr.h`, `src/boton_isr.cpp` | ISR de IO33 en IRAM, depuración por CCOUNT, spinlock, bandera y contador |
 | Control | `include/fsm_control.h`, `src/fsm_control.cpp` | Estados, eventos, matriz `constexpr` de handlers y lectura de eventos |
 | Hardware | `include/hal_motor.h`, `src/hal_motor.cpp` | PWM por hardware (LEDC) con avance, freno y giro por inercia |
 

@@ -19,7 +19,7 @@ Firmware para la IdeaBoard (ESP32) que controla un motorreductor DC con PWM por 
 - [x] Fase 2: capa de abstracción de hardware (PWM)
 - [x] Fase 3: ISR y depuración por ciclos
 - [x] Fase 4: FSM orientada a eventos
-- [x] Marco teórico (docs/marco_teorico.md)
+- [x] Marco teórico (documentacion/marco_teorico.md)
 
 ## Máquina de estados (FSM)
 
@@ -62,11 +62,14 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 
 ## Estructura del proyecto
 
-- `src/hal_motor.*`: capa de abstracción del motor (LEDC a 10 bits y 1 kHz; avance, freno y giro por inercia).
-- `src/boton_isr.*`: ISR de IO33 en IRAM, depuración por CCOUNT y spinlock.
-- `src/fsm.*`: máquina de estados con matriz `constexpr` de handlers.
+- `include/hal_motor.h`: capa de abstracción del motor (LEDC a 10 bits y 1 kHz; avance, freno y giro por inercia).
+- `include/boton_isr.h`: ISR de IO33 en IRAM, depuración por CCOUNT y spinlock.
+- `include/fsm_control.h`: máquina de estados con matriz `constexpr` de handlers.
 - `src/main.cpp`: inicialización y bucle sin bloqueos.
-- `docs/marco_teorico.md`: respuestas del marco teórico.
+- `documentacion/marco_teorico.md`: respuestas del marco teórico.
+- `documentacion/arquitectura.md`: (diagrama, matriz de transiciones y flujo de datos).
+- `documentacion/hardware_pines.json`: (pines y parámetros de hardware).
+
 
 ## Decisiones de diseño
 
@@ -90,4 +93,4 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 | Flancos por pulsación en el microinterruptor | _[completar rango]_ |
 | Intervalo más largo dentro de una pulsación | _[completar]_ µs (umbral del filtro: 25.000 µs) |
 
-Documentación teórica: [docs/marco_teorico.md](docs/marco_teorico.md).
+Documentación teórica: [documentacion/marco_teorico.md](documentacion/marco_teorico.md).
