@@ -85,7 +85,7 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 |---|---|
 | Arranque a los 3 s, motor gira, sin reinicios | Correcto |
 | Paro de emergencia: frena y pasa a FAULT | Correcto |
-| Rearme: vuelve a IDLE y arranca de nuevo a los 3 s | Parcial: ocurre al soltar el botón, no con una segunda pulsación (ver "Limitaciones conocidas") | Correcto |
+| Rearme: vuelve a IDLE y arranca de nuevo a los 3 s | Parcial: ocurre al soltar el botón, no con una segunda pulsación (ver "Limitaciones conocidas") |
 | Motor atascado con la mano: la placa no se reinicia | Correcto |
 | Ráfagas de pulsaciones: sin Guru Meditation | Correcto |
 | Sentido de giro del avance | Antihorario |
