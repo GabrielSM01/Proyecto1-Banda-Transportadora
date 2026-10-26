@@ -11,6 +11,7 @@ void setup()
     fsmInit();
 }
 
+// El bucle no bloquea: cada vuelta lee un evento y lo despacha.
 void loop()
 {
     fsmActualizar();

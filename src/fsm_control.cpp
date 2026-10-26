@@ -10,16 +10,19 @@ enum class Evento : uint8_t { NONE, BTN_PRESS, TIMEOUT, COUNT };
 constexpr size_t N_ESTADOS = static_cast<size_t>(Estado::COUNT);
 constexpr size_t N_EVENTOS = static_cast<size_t>(Evento::COUNT);
 
-constexpr uint32_t DUTY_AVANCE = 700;
+constexpr uint32_t DUTY_AVANCE = 700;   // de 1024, cerca del 68 %
 constexpr uint32_t REPOSO_MS = 3000;
 
+// Límite de tiempo por estado en milisegundos; 0 significa sin timeout.
 constexpr uint32_t TIMEOUT_MS[N_ESTADOS] = {REPOSO_MS, 0, 0};
 
+// Cada handler hace su acción sobre el motor y devuelve el estado siguiente.
 using Transition = Estado (*)();
 
 constexpr size_t idx(Estado e) { return static_cast<size_t>(e); }
 constexpr size_t idx(Evento e) { return static_cast<size_t>(e); }
 
+// Handlers de las celdas sin cambio: no hacen nada y conservan el estado.
 Estado idleIgnora()    { return Estado::IDLE; }
 Estado runningIgnora() { return Estado::RUNNING; }
 Estado faultIgnora()   { return Estado::FAULT; }
@@ -45,6 +48,9 @@ Estado faultBoton()
     return Estado::IDLE;
 }
 
+// Matriz de transiciones: filas = estado, columnas = evento.
+// Todas las celdas tienen handler, así que el despacho no necesita
+// condicionales y siempre cuesta lo mismo, O(1).
 constexpr Transition FSM[N_ESTADOS][N_EVENTOS] = {
     /* IDLE    */ {idleIgnora,    idleIgnora,    idleTimeout},
     /* RUNNING */ {runningIgnora, runningBoton,  runningIgnora},
@@ -52,8 +58,9 @@ constexpr Transition FSM[N_ESTADOS][N_EVENTOS] = {
 };
 
 Estado estado = Estado::IDLE;
-uint32_t inicioEstadoMs = 0;
+uint32_t inicioEstadoMs = 0;  // instante en que se entró al estado actual
 
+// Un solo evento por vuelta: la pulsación tiene prioridad sobre el timeout.
 Evento leerEvento()
 {
     if (botonTomarEvento()) return Evento::BTN_PRESS;
@@ -76,6 +83,6 @@ void fsmActualizar()
     Estado siguiente = FSM[idx(estado)][idx(e)]();
     if (siguiente != estado) {
         estado = siguiente;
-        inicioEstadoMs = millis();
+        inicioEstadoMs = millis();  // reinicia el conteo del timeout
     }
 }

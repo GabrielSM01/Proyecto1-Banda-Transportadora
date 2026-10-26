@@ -58,3 +58,7 @@ Cada celda de la matriz `FSM[estado][evento]` guarda el puntero al handler que s
 3. En `loop()`, `fsmActualizar` llama a `leerEvento`, que consulta la bandera con `botonTomarEvento` (dentro de un spinlock con `portENTER_CRITICAL`) y evalúa el timeout del estado actual.
 4. El evento resultante (BTN_PRESS, TIMEOUT o NONE) se despacha por la matriz y se ejecuta su handler.
 5. Ni la ISR ni el bucle usan `delay()`: el bucle consulta eventos y despacha en cada vuelta.
+
+## Decisión de diseño: spinlock y bucle, sin semáforo ni tarea
+
+La ISR y el bucle principal comparten una bandera y un contador. Se protegen con un spinlock (`portMUX_TYPE`) en lugar de un mutex, porque una ISR no puede bloquearse ni esperar. Una alternativa habitual en FreeRTOS es que la ISR entregue un semáforo binario (`xSemaphoreGiveFromISR`) a una tarea que espera el evento. Aquí se eligió consultar la bandera en cada vuelta de `loop()`, porque el enunciado pide leer las banderas de la ISR con un spinlock y mantener un bucle sin bloqueos. La sección crítica es de unas pocas instrucciones, así que el costo de enmascarar interrupciones es mínimo.

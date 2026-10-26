@@ -2,6 +2,7 @@
 #include "driver/ledc.h"
 
 namespace {
+// Entradas A y B del puente H, cada una con su canal LEDC.
 constexpr gpio_num_t PIN_IN_A = GPIO_NUM_12;
 constexpr gpio_num_t PIN_IN_B = GPIO_NUM_14;
 constexpr ledc_mode_t MODE = LEDC_HIGH_SPEED_MODE;
@@ -18,6 +19,8 @@ void setDuty(ledc_channel_t ch, uint32_t duty)
 
 void motorInit()
 {
+    // El temporizador va primero: define frecuencia y resolución, y los
+    // canales no tienen reloj propio. Los dos canales lo comparten.
     ledc_timer_config_t timer = {};
     timer.speed_mode = MODE;
     timer.duty_resolution = LEDC_TIMER_10_BIT;
@@ -43,6 +46,7 @@ void motorInit()
 
 void motorForward(uint32_t duty)
 {
+    // Se limita el ciclo de trabajo al máximo del PWM de 10 bits.
     if (duty > MOTOR_DUTY_MAX) duty = MOTOR_DUTY_MAX;
     setDuty(CH_B, 0);
     setDuty(CH_A, duty);
@@ -50,12 +54,14 @@ void motorForward(uint32_t duty)
 
 void motorBrake()
 {
+    // Ambas entradas en alto: el L9110S frena el motor.
     setDuty(CH_A, MOTOR_DUTY_MAX);
     setDuty(CH_B, MOTOR_DUTY_MAX);
 }
 
 void motorCoast()
 {
+    // Ambas entradas en bajo: el motor gira libre.
     setDuty(CH_A, 0);
     setDuty(CH_B, 0);
 }

@@ -62,9 +62,9 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 
 ## Estructura del proyecto
 
-- `include/hal_motor.h`: capa de abstracción del motor (LEDC a 10 bits y 1 kHz; avance, freno y giro por inercia).
-- `include/boton_isr.h`: ISR de IO33 en IRAM, depuración por CCOUNT y spinlock.
-- `include/fsm_control.h`: máquina de estados con matriz `constexpr` de handlers.
+- `include/hal_motor.h` y `src/hal_motor.cpp`: capa de abstracción del motor (LEDC a 10 bits y 1 kHz; avance, freno y giro por inercia).
+- `include/boton_isr.h` y `src/boton_isr.cpp`: ISR de IO33 en IRAM, depuración por CCOUNT y spinlock.
+- `include/fsm_control.h` y `src/fsm_control.cpp`: máquina de estados con matriz `constexpr` de handlers.
 - `src/main.cpp`: inicialización y bucle sin bloqueos.
 - `documentacion/marco_teorico.md`: respuestas del marco teórico.
 - `documentacion/arquitectura.md`: diagrama, matriz de transiciones y flujo de datos.
@@ -76,7 +76,7 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 - **CPU fija en 160 MHz.** Los 4.000.000 ciclos equivalen a 25 ms solo a esa frecuencia, por lo que se fija con `board_build.f_cpu` y un `static_assert` en `boton_isr.cpp` impide compilar con otra.
 - **Cada handler devuelve el estado siguiente**, de modo que el despacho es una sola línea.
 - **Los timeouts salen de una tabla indexada por estado**, sin condicionales por estado fuera de la matriz.
-- **El contador de pulsaciones cuenta todas las pulsaciones válidas tras el filtro**, incluidas las que rearman el sistema.
+- **El contador cuenta los disparos que aceptó el filtro de la ISR.** Si el contacto rebota al soltar, un mismo ciclo físico puede sumar más de una cuenta.
 - **Comportamiento adoptado:** el motor arranca 3 s después de estar en reposo, y el microinterruptor funciona como paro de emergencia y como rearme.
 
 ## Pruebas en hardware
