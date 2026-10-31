@@ -30,11 +30,23 @@
         "modo": "alta velocidad",
         "resolucion_bits": 10,
         "frecuencia_hz": 1000,
-        "ciclo_trabajo_maximo": 1024
+        "ciclo_trabajo_maximo": 1024,
+        "ciclo_trabajo_avance": 700
     },
     "antirrebote": {
         "metodo": "registro CCOUNT dentro de la ISR",
         "ciclos": 4000000,
         "tiempo_ms": 25
+    },
+    "comandos_serie": {
+        "baudios": 115200,
+        "s": "START_CMD, arranca el motor",
+        "r": "RESET_CMD, sale del bloqueo por falla"
+    },
+    "telemetria": {
+        "tarea": "telemetryTask",
+        "nucleo": 1,
+        "prioridad": 1,
+        "periodo_ms": 500
     }
 }

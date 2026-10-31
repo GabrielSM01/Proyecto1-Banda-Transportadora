@@ -1,4 +1,4 @@
-#include "hal_motor.h"
+#include "motor_hal.h"
 #include "driver/ledc.h"
 
 namespace {

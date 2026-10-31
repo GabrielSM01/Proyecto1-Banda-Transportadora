@@ -26,24 +26,24 @@ Firmware para la IdeaBoard (ESP32) que controla un motorreductor DC con PWM por 
 ```mermaid
 flowchart LR
     INI(( )) --> IDLE((IDLE))
-    IDLE -->|"TIMEOUT 3 s / motor adelante"| RUNNING((RUNNING))
-    RUNNING -->|"BTN_PRESS / freno dinámico"| FAULT((FAULT))
-    FAULT -->|"BTN_PRESS / coast"| IDLE
+    IDLE -->|"START_CMD, comando s / motor adelante"| RUNNING((RUNNING))
+    RUNNING -->|"ESTOP_TRIPPED, botón / freno dinámico"| FAULT((FAULT_LOCKOUT))
+    FAULT -->|"RESET_CMD, comando r / motor libre"| IDLE
 
-    IDLE -->|"NONE, BTN_PRESS"| IDLE
-    RUNNING -->|"NONE, TIMEOUT"| RUNNING
-    FAULT -->|"NONE, TIMEOUT"| FAULT
+    IDLE -->|"NONE, ESTOP_TRIPPED, RESET_CMD"| IDLE
+    RUNNING -->|"NONE, START_CMD, RESET_CMD"| RUNNING
+    FAULT -->|"NONE, START_CMD, ESTOP_TRIPPED"| FAULT
 
     style INI fill:#000,stroke:#000
 ```
 
-| Estado \ Evento | NONE | BTN_PRESS | TIMEOUT |
-|---|---|---|---|
-| IDLE | sin cambio | sin cambio | motor avanza, pasa a RUNNING |
-| RUNNING | sin cambio | freno dinámico, pasa a FAULT | sin cambio |
-| FAULT | sin cambio | motor en inercia, pasa a IDLE | sin cambio |
+| Estado \ Evento | NONE | START_CMD | ESTOP_TRIPPED | RESET_CMD |
+|---|---|---|---|---|
+| IDLE | sin cambio | motor avanza, pasa a RUNNING | sin cambio | sin cambio |
+| RUNNING | sin cambio | sin cambio | freno dinámico, pasa a FAULT_LOCKOUT | sin cambio |
+| FAULT_LOCKOUT | sin cambio | sin cambio | sin cambio | motor libre, pasa a IDLE |
 
-El despacho es una matriz `constexpr` de punteros a funciones indexada por estado y evento: `FSM[estado][evento]()`. Es una consulta directa de tiempo constante O(1), sin `if` ni `switch` anidados.
+Los comandos `s` (arrancar) y `r` (reiniciar) se escriben en el monitor serie. El microinterruptor solo genera el paro de emergencia, y en FAULT_LOCKOUT se ignora, así que un rebote al soltarlo no rearma el sistema. El despacho es una matriz `constexpr` indexada por estado y evento, cuyas celdas guardan el siguiente estado y el puntero a la acción: `FSM[estado][evento]`. Es una consulta directa de tiempo constante O(1), sin `if` ni `switch` anidados.
 
 ## Cableado
 
@@ -59,13 +59,13 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 1. Abrir la carpeta en VS Code con la extensión PlatformIO.
 2. Compilar con `PlatformIO: Build`.
 3. Conectar la IdeaBoard por USB, subir con `PlatformIO: Upload` y abrir el monitor serie a 115200 baudios.
+4. Con el monitor abierto, escribir `s` para arrancar el motor y `r` para reiniciar después de un paro de emergencia. La tarea de telemetría imprime el estado cada 500 ms.
 
 ## Estructura del proyecto
 
-- `include/hal_motor.h` y `src/hal_motor.cpp`: capa de abstracción del motor (LEDC a 10 bits y 1 kHz; avance, freno y giro por inercia).
-- `include/boton_isr.h` y `src/boton_isr.cpp`: ISR de IO33 en IRAM, depuración por CCOUNT y spinlock.
-- `include/fsm_control.h` y `src/fsm_control.cpp`: máquina de estados con matriz `constexpr` de handlers.
-- `src/main.cpp`: inicialización y bucle sin bloqueos.
+- `include/motor_hal.h` y `src/motor_hal.cpp`: capa de abstracción del motor (LEDC a 10 bits y 1 kHz; avance, freno y giro por inercia).
+- `include/fsm_core.h` y `src/fsm_core.cpp`: estados, eventos y matriz `constexpr` de transiciones.
+- `src/main.cpp`: ISR de IO33 en IRAM con depuración por CCOUNT y spinlock, lectura de eventos, acciones de la FSM, tarea de telemetría y bucle principal.
 - `documentacion/marco_teorico.md`: respuestas del marco teórico.
 - `documentacion/arquitectura.md`: diagrama, matriz de transiciones y flujo de datos.
 - `documentacion/hardware_pines.json`: pines y parámetros de hardware.
@@ -73,26 +73,27 @@ El despacho es una matriz `constexpr` de punteros a funciones indexada por estad
 
 ## Decisiones de diseño
 
-- **CPU fija en 160 MHz.** Los 4.000.000 ciclos equivalen a 25 ms solo a esa frecuencia, por lo que se fija con `board_build.f_cpu` y un `static_assert` en `boton_isr.cpp` impide compilar con otra.
-- **Cada handler devuelve el estado siguiente**, de modo que el despacho es una sola línea.
-- **Los timeouts salen de una tabla indexada por estado**, sin condicionales por estado fuera de la matriz.
+- **CPU fija en 160 MHz.** Los 4.000.000 ciclos equivalen a 25 ms solo a esa frecuencia, por lo que se fija con `board_build.f_cpu` y un `static_assert` en `main.cpp` impide compilar con otra.
+- **El botón solo genera el paro de emergencia.** El arranque y el reinicio son comandos por el monitor serie, y FAULT_LOCKOUT ignora el botón, de modo que un rebote no puede rearmar el sistema.
+- **Cada celda de la matriz guarda el siguiente estado y la acción**, de modo que el despacho es una sola consulta.
+- **Spinlock entre la ISR y `loop()`, y mutex entre `loop()` y la telemetría.** La ISR no puede bloquearse, así que usa spinlock; las dos tareas sí pueden esperar, así que comparten el puerto serie con un mutex.
 - **El contador cuenta los disparos que aceptó el filtro de la ISR.** Si el contacto rebota al soltar, un mismo ciclo físico puede sumar más de una cuenta.
-- **Comportamiento adoptado:** el motor arranca 3 s después de estar en reposo, y el microinterruptor funciona como paro de emergencia y como rearme.
 
 ## Pruebas en hardware
 
 | Prueba | Resultado |
 |---|---|
-| Arranque a los 3 s, motor gira, sin reinicios | Correcto |
-| Paro de emergencia: frena y pasa a FAULT | Correcto |
-| Rearme: vuelve a IDLE y arranca de nuevo a los 3 s | Parcial: ocurre al soltar el botón, no con una segunda pulsación (ver "Limitaciones conocidas") |
-| Motor atascado con la mano: la placa no se reinicia | Correcto |
-| Ráfagas de pulsaciones: sin Guru Meditation | Correcto |
+| Compilación en PlatformIO | Correcta (SUCCESS) |
+| Motor: avance, freno y giro libre | Correcto en la versión anterior; el código de `motor_hal` es el mismo |
+| Motor atascado con la mano: la placa no se reinicia | Correcto en la versión anterior |
+| Ráfagas de pulsaciones: sin Guru Meditation | Correcto en la versión anterior; la ISR conserva la misma lógica |
 | Sentido de giro del avance | Antihorario |
+| Comandos `s` y `r`, bloqueo en FAULT_LOCKOUT y telemetría | Pendiente de probar en la placa |
 
 ## Limitaciones conocidas
 
-- En las pruebas, tras un paro de emergencia el rearme ocurrió al soltar el botón, y no con una segunda pulsación. Causas probables: rebote del microinterruptor al soltar (el filtro de 25 ms mide desde el último disparo válido) o contacto cableado normalmente cerrado. No se confirmó por falta de mediciones con la placa.
-- Mejora propuesta: exigir que el pin permanezca en alto un tiempo mínimo antes de aceptar un nuevo disparo.
+- En la versión anterior el mismo botón frenaba y rearmaba, y un rebote al soltarlo rearmaba el sistema. Se corrigió con el estado FAULT_LOCKOUT, del que solo sale el comando `r`. Falta confirmar el comportamiento en la placa.
+- La frecuencia de 160 MHz está fijada en compilación (`board_build.f_cpu` y `static_assert`), pero no se midió en ejecución.
+
 
 Documentación teórica: [documentacion/marco_teorico.md](documentacion/marco_teorico.md).

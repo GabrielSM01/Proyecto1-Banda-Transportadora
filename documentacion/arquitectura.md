@@ -6,59 +6,76 @@
 graph TD
     IDLE((IDLE))
     RUNNING((RUNNING))
-    FAULT((FAULT))
+    FAULT_LOCKOUT((FAULT_LOCKOUT))
 
-    IDLE -- "TIMEOUT, 3 s en reposo<br/>[idleTimeout]" --> RUNNING
-    RUNNING -- "BTN_PRESS, paro de emergencia<br/>[runningBoton]" --> FAULT
-    FAULT -- "BTN_PRESS, rearme<br/>[faultBoton]" --> IDLE
+    IDLE -- "START_CMD, comando s<br/>[onStart]" --> RUNNING
+    RUNNING -- "ESTOP_TRIPPED, botón en IO33<br/>[onFault]" --> FAULT_LOCKOUT
+    FAULT_LOCKOUT -- "RESET_CMD, comando r<br/>[onReset]" --> IDLE
 
-    IDLE -. "NONE, BTN_PRESS<br/>[idleIgnora]" .-> IDLE
-    RUNNING -. "NONE, TIMEOUT<br/>[runningIgnora]" .-> RUNNING
-    FAULT -. "NONE, TIMEOUT<br/>[faultIgnora]" .-> FAULT
+    IDLE -. "NONE, ESTOP_TRIPPED, RESET_CMD<br/>[onNoOp]" .-> IDLE
+    RUNNING -. "NONE, START_CMD, RESET_CMD<br/>[onNoOp]" .-> RUNNING
+    FAULT_LOCKOUT -. "NONE, START_CMD, ESTOP_TRIPPED<br/>[onNoOp]" .-> FAULT_LOCKOUT
 ```
 
 ## Matriz de transiciones
 
-Cada celda de la matriz `FSM[estado][evento]` guarda el puntero al handler que se ejecuta. El handler realiza la acción sobre el motor y devuelve el estado siguiente. El despacho es una consulta directa de tiempo constante O(1), sin `if` ni `switch` para la lógica de estados.
+Cada celda de `FSM[estado][evento]` guarda el siguiente estado y el puntero a la acción que se ejecuta. La consulta es directa, de tiempo constante O(1), sin `if` ni `switch` para decidir la transición.
 
-| Estado \ Evento | NONE | BTN_PRESS | TIMEOUT |
-|---|---|---|---|
-| IDLE | idleIgnora, sigue en IDLE | idleIgnora, sigue en IDLE | idleTimeout, pasa a RUNNING |
-| RUNNING | runningIgnora, sigue en RUNNING | runningBoton, pasa a FAULT | runningIgnora, sigue en RUNNING |
-| FAULT | faultIgnora, sigue en FAULT | faultBoton, pasa a IDLE | faultIgnora, sigue en FAULT |
+| Estado \ Evento | NONE | START_CMD | ESTOP_TRIPPED | RESET_CMD |
+|---|---|---|---|---|
+| IDLE | IDLE, onNoOp | RUNNING, onStart | IDLE, onNoOp | IDLE, onNoOp |
+| RUNNING | RUNNING, onNoOp | RUNNING, onNoOp | FAULT_LOCKOUT, onFault | RUNNING, onNoOp |
+| FAULT_LOCKOUT | FAULT_LOCKOUT, onNoOp | FAULT_LOCKOUT, onNoOp | FAULT_LOCKOUT, onNoOp | IDLE, onReset |
+
+FAULT_LOCKOUT es un estado de bloqueo: una vez activado el paro de emergencia, solo el comando de reinicio (`r`) vuelve a IDLE. Un nuevo disparo del botón o un comando de arranque no hacen nada, por eso un rebote del microinterruptor al soltarlo no puede rearmar el sistema.
 
 ## Origen de los eventos
 
-- **BTN_PRESS:** el microinterruptor en IO33 dispara una interrupción por flanco de bajada. La ISR filtra el rebote con el registro CCOUNT (al menos 4.000.000 ciclos, 25 ms a 160 MHz) y, dentro de un spinlock, levanta una bandera `volatile` e incrementa el contador de pulsaciones.
-- **TIMEOUT:** `leerEvento()` compara `millis()` con el instante en que se entró al estado actual. Solo IDLE tiene límite (3 s); en los demás estados el límite es 0, es decir, no hay timeout. Esto se evalúa en el bucle principal, nunca en la ISR.
-- **NONE:** ningún evento pendiente en esa vuelta del bucle.
+- **ESTOP_TRIPPED:** el microinterruptor en IO33 dispara una interrupción por flanco de bajada. La ISR `emergencyStopISR` filtra el rebote con el registro CCOUNT (al menos 4.000.000 ciclos, 25 ms a 160 MHz) y, dentro de un spinlock, levanta `emergencyFlag` y suma 1 a `pressCount`.
+- **START_CMD y RESET_CMD:** comandos que se escriben en el monitor serie a 115200 baudios: `s` arranca y `r` reinicia (con mayúscula o minúscula).
+- **NONE:** ninguna de las anteriores en esa vuelta del bucle.
+
+`leerEvento()` entrega un solo evento por vuelta, y el paro de emergencia tiene prioridad sobre los comandos.
 
 ## Acciones
 
-| Handler | Efecto sobre el motor |
+| Acción | Efecto sobre el motor |
 |---|---|
-| `idleTimeout` | PWM de avance con ciclo de trabajo 700 de 1024 |
-| `runningBoton` | Freno dinámico: ambas entradas del puente H al 100 % |
-| `faultBoton` | Giro por inercia: ambas entradas en 0 |
-| `idleIgnora`, `runningIgnora`, `faultIgnora` | Sin efecto; devuelven el mismo estado |
+| `onStart` | `motorForward(DUTY_AVANCE)`: avance con PWM de 700 sobre 1024 |
+| `onFault` | `motorBrake()`: freno dinámico, ambas entradas del puente H al 100 % |
+| `onReset` | `motorCoast()`: suelta el freno, el motor queda libre |
+| `onNoOp` | Sin efecto |
+
+Cada acción, salvo `onNoOp`, imprime además un mensaje por el puerto serie.
 
 ## Capas del código
 
 | Capa | Archivos | Responsabilidad |
 |---|---|---|
-| Aplicación | `src/main.cpp` | Inicialización y bucle sin bloqueos |
-| Entrada | `include/boton_isr.h`, `src/boton_isr.cpp` | ISR de IO33 en IRAM, depuración por CCOUNT, spinlock, bandera y contador |
-| Control | `include/fsm_control.h`, `src/fsm_control.cpp` | Estados, eventos, matriz `constexpr` de handlers y lectura de eventos |
-| Hardware | `include/hal_motor.h`, `src/hal_motor.cpp` | PWM por hardware (LEDC) con avance, freno y giro por inercia |
+| Aplicación | `src/main.cpp` | ISR, lectura de eventos, bucle principal, tarea de telemetría y acciones |
+| Control | `include/fsm_core.h`, `src/fsm_core.cpp` | Estados, eventos, tipo `Transition`, matriz `FSM` y nombres para el monitor |
+| Hardware | `include/motor_hal.h`, `src/motor_hal.cpp` | PWM por hardware (LEDC) con `motorForward`, `motorBrake` y `motorCoast` |
 
-## Flujo ISR a bucle principal
+## Sincronización entre contextos
 
-1. El flanco de bajada en IO33 llama a `isrBoton`, que reside en IRAM.
-2. Si pasaron al menos 4.000.000 ciclos desde el último disparo válido, entra al spinlock (`portENTER_CRITICAL_ISR`), levanta la bandera y suma 1 al contador de pulsaciones.
-3. En `loop()`, `fsmActualizar` llama a `leerEvento`, que consulta la bandera con `botonTomarEvento` (dentro de un spinlock con `portENTER_CRITICAL`) y evalúa el timeout del estado actual.
-4. El evento resultante (BTN_PRESS, TIMEOUT o NONE) se despacha por la matriz y se ejecuta su handler.
-5. Ni la ISR ni el bucle usan `delay()`: el bucle consulta eventos y despacha en cada vuelta.
+| Dato o recurso | Quiénes lo comparten | Mecanismo |
+|---|---|---|
+| `emergencyFlag` y `pressCount` | ISR y `loop()` | Spinlock `isrSpinlock` y `volatile` |
+| `lastInterruptCycle` | Solo la ISR | Ninguno, no se comparte |
+| Puerto Serial | `loop()` y `telemetryTask` | Mutex `serialMutex` |
+| `currentState` | `loop()` lo escribe y `telemetryTask` lo lee | `volatile`: es un byte y la tarea solo lo imprime |
 
-## Decisión de diseño: spinlock y bucle, sin semáforo ni tarea
+La regla que sigue el diseño: entre una tarea y una ISR se usa un spinlock, porque la ISR no puede bloquearse; entre dos tareas se usa un mutex de FreeRTOS, porque una tarea sí puede esperar.
 
-La ISR y el bucle principal comparten una bandera y un contador. Se protegen con un spinlock (`portMUX_TYPE`) en lugar de un mutex, porque una ISR no puede bloquearse ni esperar. Una alternativa habitual en FreeRTOS es que la ISR entregue un semáforo binario (`xSemaphoreGiveFromISR`) a una tarea que espera el evento. Aquí se eligió consultar la bandera en cada vuelta de `loop()`, porque el enunciado pide leer las banderas de la ISR con un spinlock y mantener un bucle sin bloqueos. La sección crítica es de unas pocas instrucciones, así que el costo de enmascarar interrupciones es mínimo.
+## Flujo de un paro de emergencia
+
+1. Con el motor en marcha (RUNNING), el operador presiona el microinterruptor y IO33 baja de nivel.
+2. El hardware dispara `emergencyStopISR`. La ISR lee CCOUNT, comprueba que pasaron al menos 4.000.000 ciclos desde el último disparo válido y entra al spinlock.
+3. Dentro del spinlock levanta `emergencyFlag`, suma 1 a `pressCount` y sale.
+4. En la siguiente vuelta, `loop()` llama a `leerEvento()`, que con `takeEmergency()` lee y limpia la bandera dentro del mismo spinlock y devuelve `ESTOP_TRIPPED`.
+5. `loop()` consulta `FSM[RUNNING][ESTOP_TRIPPED]`, imprime el estado inicial, el evento y el estado siguiente, actualiza `currentState` a FAULT_LOCKOUT y ejecuta `onFault`, que frena el motor.
+6. Si el botón rebota al soltarse y llega otro disparo, en FAULT_LOCKOUT ese evento se ignora y el sistema permanece bloqueado hasta recibir `r`.
+
+## Tarea de telemetría
+
+`telemetryTask` corre en el núcleo 1 con prioridad 1 y cada 500 ms imprime el estado actual, usando `imprimir()`, que toma el mutex del Serial. El bucle `loop()` termina cada vuelta con `vTaskDelay` de 10 ms, que cede el procesador al planificador.
